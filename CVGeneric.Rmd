@@ -1,0 +1,37 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# trainFeats will be a formula, not a data frame
+# Need to pre-process classes for logistic regression:
+# right now we have -1 and 1 but logistic needs 0 and 1,
+# so re-assign all -1 to be 0 and ignores original 0's.
+# classifier needs to be a character string
+
+# lossfunc can be cv error, hinge loss, logistic loss
+CVgeneric <- function(classifier, trainFeats, trainLabels, foldsK, lossFunc, training) {
+  set.seed(154)
+  folds <- createFolds(training[,trainLabels], k = foldsK)
+  acc_folds <- c()
+  formula <- as.formula(paste(trainLabels, "~", paste(trainFeats, collapse = "+"), sep = ""))
+  for (i in 1:length(folds)){
+    if (classifier == 'randomForest') {
+    model <- randomForest(formula, data=training[-c(folds[[i]]),], importance = TRUE)
+    pred_class <- predict(model, newdata = training[c(folds[[i]]),], type = 'class')
+    loss <- lossFunc(actual = as.numeric(as.character(training[c(folds[[i]]), trainLabels])), 
+                     predicted = as.numeric(as.character(pred_class)))
+    acc_folds[paste("fold", i, sep="")] <- 1- loss
+    } else {
+    model <- train(formula, data=training[-c(folds[[i]]),], method=classifier)
+    pred_class <- predict(model, newdata = training[c(folds[[i]]),], "raw")
+    loss <- lossFunc(actual = as.numeric(as.character(training[c(folds[[i]]), trainLabels])), 
+                     predicted = as.numeric(as.character(pred_class)))
+    acc_folds[paste("fold", i, sep="")] <- 1 - loss}
+  }
+  return (acc_folds)
+}
+```
+
+

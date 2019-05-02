@@ -1,0 +1,2188 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r, message=FALSE}
+library(ggplot2)
+library(ggthemes)
+library(GGally)
+library(gridExtra)
+library(ModelMetrics)
+library(caret)
+library(dplyr)
+library(MASS)
+library(randomForest)
+library(ROCR)
+library(mvnmle)
+library("car")
+library(reshape2)
+```
+
+##Part 0: Data Loading
+```{r}
+img_1 = read.table('image_data/image1.txt')
+names(img_1) = c("y", "x", "label", "NDAI", "SD", "CORR", "rad_angle_DF", "rad_angle_CF", "rad_angle_BF", "rad_angle_AF", "rad_angle_AN")
+```
+
+```{r}
+img_2 = read.table('image_data/image2.txt')
+names(img_2) = c("y", "x", "label", "NDAI", "SD", "CORR", "rad_angle_DF", "rad_angle_CF", "rad_angle_BF", "rad_angle_AF", "rad_angle_AN")
+```
+
+```{r}
+img_3 = read.table('image_data/image3.txt')
+names(img_3) = c("y", "x", "label", "NDAI", "SD", "CORR", "rad_angle_DF", "rad_angle_CF", "rad_angle_BF", "rad_angle_AF", "rad_angle_AN")
+```
+
+##Part 1 Data Collection and Exploration (30 pts)
+
+### (a) Write a half-page summary of the paper, including at least the purpose of the study, the data, the collection method, its conclusions and potential impact.
+Purpose of the study: This article explores two new algorithms for arctic cloud detection using Multiangle Imaging SpectroRadiometer (MISR) imagery because arctic cloud detection as it is currently is difficult and unreliable. As the abstract says, the goal is to “identify cloud-free surface pixels in the imagery instead of cloudy pixels as in the existing MISR operational algorithms.” 
+
+Data: The data consists of 3 images of three data units collected from MISR blocks 20–22 over three consecutive orbits (i.e., 13257, 13490, and 13723).
+The features in this dataset include: y coordinates of the pixel, x coordinates of the pixel, expert label (+1 = cloud, -1 = not cloud, 0 unlabeled), NDAI (normalized difference angular index that characterizes the changes in a scene with changes in the MISR view direction), SD (the standard deviation of MISR nadir camera pixel values across a scene), CORR (the correlation of MISR images of the same scene from different MISR viewing directions), Radiance angle DF (MISR sensor camera angle at 70.5 degrees), Radiance angle CF (MISR sensor camera angle at 60 degrees), Radiance angle BF (MISR sensor camera angle at 45.6 degrees), Radiance angle AF (MISR sensor camera angle at 26.1 degrees), and Radiance angle AN (MISR sensor camera angle at 0 degrees).
+
+Collection method: 
+The image data was collected over 144 days from April 28, 2002 to September 19, 2002 from 10 MISR orbits of path 26 over the Arctic, northern Greenland, and Baffin Bay. Six data units (MISR blocks 11–13, 14–16, 17–19, 20–22, 23–25, and 26–28) from each orbit were studied. 
+Experts hand-labeled the image data as cloudy, not cloudy, or left it unlabeled if unsure. After the expert labeled a patch of image pixels, NASA’s misrdump and misrlearn algorithms were employed to label the pixels from the MISR nadir camera as clear or cloudy.
+
+Conclusions and potential impact: The study concludes that the three most important physical features in predicting cloudy or not cloudy images are CORR, SD, and NDAI. The ELCM algorithm reliant on these three features is more accurate than the existing MISR algorithms for cloud detection in the Arctic. Moreover, QDA aided ELCM provided performance better than that of a more complicated classifier, like SVM. Having a better classifier of cloudy/non-cloudy images is important because more reliable labeling will lead to more accurate climate model simulations which will be useful when studying the effects of climate change in the Arctic brought on by increasing concentrations of atmospheric carbon dioxide.
+
+### (b) Summarize the data, i.e., % of pixels for the different classes. Plot well-labeled beautiful maps using x, y coordinates the expert labels with color of the region based on the expert labels. Do you observe some trend/pattern? Is an i.i.d. assumption for the samples justified for this dataset?
+
+```{r}
+# Image1
+img_1$label <- as.factor(img_1$label)
+
+# For label -1
+nrow(img_1[img_1$label == -1,])/nrow(img_1)
+
+# For label 0
+nrow(img_1[img_1$label == 0,])/nrow(img_1)
+
+# For label 1
+nrow(img_1[img_1$label == 1,])/nrow(img_1)
+```
+
+```{r}
+# Image2
+img_2$label <- as.factor(img_2$label)
+
+# For label -1
+nrow(img_2[img_2$label == -1,])/nrow(img_2)
+
+# For label 0
+nrow(img_2[img_2$label == 0,])/nrow(img_2)
+
+# For label 1
+nrow(img_2[img_2$label == 1,])/nrow(img_2)
+```
+
+```{r}
+# Image3
+img_3$label <- as.factor(img_3$label)
+
+# For label -1
+nrow(img_3[img_3$label == -1,])/nrow(img_3)
+
+# For label 0
+nrow(img_3[img_3$label == 0,])/nrow(img_3)
+
+# For label 1
+nrow(img_3[img_3$label == 1,])/nrow(img_3)
+```
+
+```{r}
+#Combined
+image <- rbind(img_1, img_2)
+image <- rbind(image, img_3)
+# For label -1
+nrow(image[image$label == -1,])/nrow(image)
+
+# For label 0
+nrow(image[image$label == 0,])/nrow(image)
+
+# For label 1
+nrow(image[image$label == 1,])/nrow(image)
+
+image$label <- as.factor(image$label)
+```
+
+```{r}
+img_1_new <- img_1
+img_2_new <- img_2
+img_3_new <- img_3
+img_1_new$Image <- 'Image 1'
+img_2_new$Image <- 'Image 2'
+img_3_new$Image <- 'Image 3'
+```
+
+```{r}
+image_graph <- do.call(rbind, list(img_1_new, img_2_new, img_3_new))
+ggplot(image_graph, aes(x = x, y = y)) + 
+  geom_point(aes(color = label)) +
+  theme_gdocs() + 
+  facet_wrap(.~Image)+
+  xlab('X Coordinate') + 
+  ylab('Y Coordinate') + 
+  scale_color_brewer(palette="Blues") + 
+  #labs(caption = "Figure 1: Maps of Expert Labels")+ 
+  theme(plot.caption = element_text(hjust = 0.5, size = 20), legend.text = element_text(size = 20), legend.title = element_text(size = 20), axis.title=element_text(size=20), axis.text=element_text(size=20), strip.text.x = element_text(size = 20))
+```
+
+From these images, we can see that there is a trend occurring: there are many unlabeled regions in between the expert-labeled regions. We can interpret this as the experts being unconfident in labeling anything by the boundary of cloudy and clear skies. Furthermore, we can say that the i.i.d. assumption is not justified because adjacent pixels cannot be independent from each other -- a cloudy pixel will likely be part of an overall greater cloudy region, just like a non-cloudy pixel will most likely be part of a bigger non-cloudy sky region.
+
+
+### (c) Perform a visual and quantitative EDA of the dataset, e.g., summarizing (i) pairwise relationship between the features themselves and (ii) the relationship between the expert labels with the individual features. Do you notice differences between the two classes (cloud, no cloud) based on the radiance or other features (CORR, NDAI, SD)?
+```{r}
+img_1$label = as.factor(img_1$label)
+img_2$label = as.factor(img_2$label)
+img_3$label = as.factor(img_3$label)
+```
+
+Pairwise scatterplots among the angles
+```{r}
+img_1_labeled = filter(img_1, label == 1 | label == -1)
+cols <- character(nrow(img_1_labeled))
+cols[] <- "black"
+cols[img_1_labeled$label == -1] <- "blue"
+cols[img_1_labeled$label == 1] <- "red"
+pairs(img_1_labeled[,7:11],col=cols)
+```
+
+
+```{r, cache = TRUE}
+img_2_labeled = filter(img_2, label == 1 | label == -1)
+cols <- character(nrow(img_2_labeled))
+cols[] <- "black"
+cols[img_2_labeled$label == -1] <- "blue"
+cols[img_2_labeled$label == 1] <- "red"
+pairs(img_2_labeled[,7:11],col=cols)
+```
+
+```{r, cache = TRUE}
+img_3_labeled = filter(img_3, label == 1 | label == -1)
+cols <- character(nrow(img_3_labeled))
+cols[] <- "black"
+cols[img_3_labeled$label == -1] <- "blue"
+cols[img_3_labeled$label == 1] <- "red"
+pairs(img_3_labeled[,7:11],col=cols)
+```
+Pairwise scatterplots among the MISR sensor camera angles on Image 1 reveal that these angles are highly correlated with each other. This implies that including only one angle in a classification model will be necessary since including the other four angles will lead to issues due to multicollinearity. We get similar plots and conclusions when we plot image 2 and image 3, so we will omit them from this report.
+```{r, cache = TRUE}
+pairs(img_1_labeled[,4:6],col=cols)
+```
+
+```{r, cache = TRUE}
+pairs(img_2_labeled[,4:6],col=cols)
+```
+
+```{r, cache = TRUE}
+pairs(img_3_labeled[,4:6],col=cols)
+```
+
+Pairwise scatterplots among NDAI, SD, and CORR reveal that these features are relatively uncorrelated with each other. We can see SD and NDAI are somewhat correlated with each other but not too much. We get similar plots and conclusions when we plot image 2 and image 3, so we will omit them from this report.
+
+
+Now we will explore the relationship between the expert labels with the individual features through other visual and quantitative means.
+
+We will start with graphing the histogram distributions of important features like NDAI, CORR, SD, and Radiance Angle AN separated by label type (cloudy vs. non-cloudy)
+
+```{r}
+#histograms of cloud and no cloud, histogram of feature by cloud/no cloud.
+#do a standardization/scaling of axis if needed
+img_1_cloud = filter(img_1, label == 1)
+img_1_not_cloud = filter(img_1, label == -1)
+img_1_cloud_not_cloud = rbind(img_1_cloud, img_1_not_cloud)
+
+img_2_cloud = filter(img_2, label == 1)
+img_2_not_cloud = filter(img_2, label == -1)
+img_2_cloud_not_cloud = rbind(img_2_cloud, img_2_not_cloud)
+
+img_3_cloud = filter(img_3, label == 1)
+img_3_not_cloud = filter(img_3, label == -1)
+img_3_cloud_not_cloud = rbind(img_3_cloud, img_3_not_cloud)
+```
+
+```{r}
+img_1_cloud_not_cloud$id <- 'Image 1'
+img_2_cloud_not_cloud$id <- 'Image 2'
+img_3_cloud_not_cloud$id <- 'Image 3'
+combined_cloud_not_cloud <- do.call(rbind, list(img_1_cloud_not_cloud, img_2_cloud_not_cloud, img_3_cloud_not_cloud))
+ggplot(combined_cloud_not_cloud,aes(x=NDAI, color = label, fill = label)) +
+  facet_grid(.~id)+
+    geom_histogram(data=subset(combined_cloud_not_cloud, label == 1), alpha = 0.2, binwidth = 0.5, aes(y = ..density..)) +
+    geom_histogram(data=subset(combined_cloud_not_cloud, label == -1), alpha = 0.2, binwidth = 0.5, aes(y = ..density..)) +
+  labs(x = "NDAI") +
+  labs(y = "Density") +
+  #labs(title = "Image 1") +
+  theme_gdocs() +
+  theme(legend.text = element_text(size = 20), legend.title = element_text(size = 20), axis.title=element_text(size=20), axis.text=element_text(size=15), strip.text.x = element_text(size = 20))
+```
+
+We can see that the distribution of NDAI over cloudy and non-cloudy images is nicely separable here and will therefore be a good predictor of image labels.
+```{r}
+x = filter(img_1_cloud_not_cloud, label == -1)
+NDAI_over_1 = filter(x, NDAI>=1)
+NDAI_over_1_vec = NDAI_over_1$NDAI
+NDAI_accuracy_img_1 = 1 - length(NDAI_over_1_vec) / nrow(x)
+
+y = filter(img_2_cloud_not_cloud, label == -1)
+NDAI_over_1 = filter(y, NDAI>=1)
+NDAI_over_1_vec = NDAI_over_1$NDAI
+NDAI_accuracy_img_2 = 1 - length(NDAI_over_1_vec) / nrow(y)
+
+z = filter(img_3_cloud_not_cloud, label == -1)
+NDAI_over_1 = filter(z, NDAI>=1)
+NDAI_over_1_vec = NDAI_over_1$NDAI
+NDAI_accuracy_img_3 = 1 - length(NDAI_over_1_vec) / nrow(z)
+
+feat_acc_df = data.frame(Images = c("Image 1", "Image 2", "Image 3"), NDAI.accuracies = c(NDAI_accuracy_img_1, NDAI_accuracy_img_2, NDAI_accuracy_img_3))
+```
+
+
+```{r}
+ggplot(combined_cloud_not_cloud,aes(x=CORR, color = label, fill = label)) +
+  facet_grid(.~id)+
+    geom_histogram(data=subset(combined_cloud_not_cloud, label == 1), alpha = 0.2, binwidth = 0.025, aes(y = ..density..)) +
+    geom_histogram(data=subset(combined_cloud_not_cloud, label == -1), alpha = 0.2, binwidth = 0.025, aes(y = ..density..)) +
+  labs(x = "CORR") +
+  labs(y = "Density") +
+  #labs(title = "Image 1") +
+  theme_gdocs() +
+  theme(legend.text = element_text(size = 20), legend.title = element_text(size = 20), axis.title=element_text(size=20), axis.text=element_text(size=15), strip.text.x = element_text(size = 20))
+```
+
+It's harder to clearly separate the distributions of CORR. We can see that there may be a cutoff around CORR = 0.2 where the two distributions are relatively separate, but there is still much overlap.
+```{r}
+CORR_over_thresh = filter(x, CORR>=0.15)
+CORR_over_thresh_vec = CORR_over_thresh$CORR
+CORR_accuracy_img_1 = 1 - length(CORR_over_thresh_vec) / nrow(x)
+
+CORR_over_thresh = filter(y, CORR>=0.15)
+CORR_over_thresh_vec = CORR_over_thresh$CORR
+CORR_accuracy_img_2 = 1 - length(CORR_over_thresh_vec) / nrow(y)
+
+CORR_over_thresh = filter(z, CORR>=0.15)
+CORR_over_thresh_vec = CORR_over_thresh$CORR
+CORR_accuracy_img_3 = 1 - length(CORR_over_thresh_vec) / nrow(z)
+
+feat_acc_df$CORR.accuracies = c(CORR_accuracy_img_1, CORR_accuracy_img_2, CORR_accuracy_img_3)
+```
+
+
+```{r}
+ggplot(combined_cloud_not_cloud,aes(x=log(SD), color = label, fill = label)) +
+  facet_grid(.~id)+
+    geom_histogram(data=subset(combined_cloud_not_cloud, label == 1), alpha = 0.2, binwidth = 0.4, aes(y = ..density..)) +
+    geom_histogram(data=subset(combined_cloud_not_cloud, label == -1), alpha = 0.2, binwidth = 0.4, aes(y = ..density..)) +
+  labs(x = "log(SD)") +
+  labs(y = "Density") +
+  #labs(title = "Image 1") +
+  theme_gdocs() +
+  theme(legend.text = element_text(size = 20), legend.title = element_text(size = 20), axis.title=element_text(size=20), axis.text=element_text(size=15), strip.text.x = element_text(size = 20))
+```
+
+We can see that the distribution of log(SD) over cloudy and non-cloudy images is nicely separable here (although not as nicely separable as NDAI) and will therefore be a good predictor of image labels.
+
+```{r}
+SD_over_1 = filter(x, log(SD)>=1)
+SD_over_1_vec = log(SD_over_1$SD)
+SD_accuracy_img_1 = 1 - length(SD_over_1_vec) / nrow(x)
+
+SD_over_1 = filter(y, log(SD)>=1)
+SD_over_1_vec = log(SD_over_1$SD)
+SD_accuracy_img_2 = 1 - length(SD_over_1_vec) / nrow(y)
+
+SD_over_1 = filter(z, log(SD)>=1)
+SD_over_1_vec = log(SD_over_1$SD)
+SD_accuracy_img_3 = 1 - length(SD_over_1_vec) / nrow(z)
+
+feat_acc_df$SD.accuracies = c(SD_accuracy_img_1, SD_accuracy_img_2, SD_accuracy_img_3)
+```
+
+```{r}
+ggplot(combined_cloud_not_cloud,aes(x=rad_angle_AN, color = label, fill = label)) +
+  facet_grid(.~id)+
+    geom_histogram(data=subset(combined_cloud_not_cloud, label == 1), alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=subset(combined_cloud_not_cloud, label == -1), alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  labs(x = "rad_angle_AN") +
+  labs(y = "Density") +
+  #labs(title = "Image 1") +
+  theme_gdocs() +
+  theme(legend.text = element_text(size = 20), legend.title = element_text(size = 20), axis.title=element_text(size=20), axis.text=element_text(size=15), strip.text.x = element_text(size = 20))
+```
+
+It's harder to clearly separate the distributions of rad_angle_AN. We can see that there may be a cutoff around rad_angle_AN = 250 where the two distributions are relatively separate, but there is still much overlap.
+We decided to model the distributions of only one angle since angle features are highly correlated with each other and therefore produce highly similar histograms as well. Because Radiance Angle AN feature distributions are not very easily distinguishable, it might not be too important of a feature, but we will investigate further.
+
+
+## Preparation (40 pts)
+
+# (Data Split) Split the entire data (image1.txt, image2.txt, image3.txt) into three sets: training, validation and test. Think carefully about how to split the data. Suggest at least two non-trivial different ways of splitting the data which takes into account that the data is not i.i.d. 
+
+Two non-trivial ways to split the data:
+
+There is a temporal structure to respect when you split. We could train on the first two images and test on the last image?
+
+There is a spatial structure to respect when you split. We could train on the first 70% slice of the image (left to right), validate on the next 10% slice of the image, and test on the last 10% slice of the image.
+
+```{r}
+# Temporal Split: Train on the first 2 images, validation of half of the last image, and test on the other half.
+train_temp <- rbind(img_1, img_2)
+val_index <- sample(nrow(img_3), 0.5*nrow(img_3))
+val_temp <- img_3[val_index,]
+test_temp <- img_3[-val_index,]
+```
+
+
+```{r}
+# Spatial Split: Divide the images into 8*8 blocks and treat the blocks as i.i.d. and sample from there
+
+# Split by x and y coords seperately
+
+# Image 1
+image_group_1 <- within(img_1, {
+  grp.x = cut(x, 38, labels = FALSE)
+  grp.y = cut(y, 48, labels = FALSE)
+})
+
+# Combine into unique buckets
+image_group_1$id <- paste(as.character(image_group_1$grp.x),as.character(image_group_1$grp.y), sep = "+", collapse = NULL)
+image_group_1 <- image_group_1[with(image_group_1, order(grp.x, grp.y)),]
+ids <- data.frame(unique(image_group_1$id))
+ids$block <- seq(1,nrow(ids), by = 1)
+colnames(ids)[1] <- 'id'
+image_group_1 <- image_group_1 %>%
+  left_join(ids)
+image_group_1 <- image_group_1[,-c(12:14)]
+
+# Train-Val-Test Split
+set.seed(154)
+num_block <- length(unique(image_group_1$block))
+range_block <- c(1:num_block)
+train_blocks <- sample(num_block, 0.7*num_block)
+val_blocks <- sample(range_block[!range_block %in% train_blocks], 0.1*num_block)
+test_blocks <- range_block[(!range_block %in% train_blocks) & (!range_block %in% val_blocks)]
+train_spac_1 <- image_group_1[(image_group_1$block %in% train_blocks),]
+val_spac_1 <- image_group_1[(image_group_1$block %in% val_blocks),]
+test_spac_1 <- image_group_1[(image_group_1$block %in% test_blocks),]
+
+
+
+# Image 2
+image_group_2 <- within(img_2, {
+  grp.x = cut(x, 38, labels = FALSE)
+  grp.y = cut(y, 48, labels = FALSE)
+})
+
+# Combine into unique buckets
+image_group_2$id <- paste(as.character(image_group_2$grp.x),as.character(image_group_2$grp.y), sep = "+", collapse = NULL)
+image_group_2 <- image_group_2[with(image_group_2, order(grp.x, grp.y)),]
+ids <- data.frame(unique(image_group_2$id))
+ids$block <- seq(1,nrow(ids), by = 1)
+colnames(ids)[1] <- 'id'
+image_group_2 <- image_group_2 %>%
+  left_join(ids)
+image_group_2 <- image_group_2[,-c(12:14)]
+
+# Train-Val-Test Split
+set.seed(9)
+num_block <- length(unique(image_group_2$block))
+range_block <- c(1:num_block)
+train_blocks <- sample(num_block, 0.7*num_block)
+val_blocks <- sample(range_block[!range_block %in% train_blocks], 0.1*num_block)
+test_blocks <- range_block[(!range_block %in% train_blocks) & (!range_block %in% val_blocks)]
+train_spac_2 <- image_group_2[(image_group_2$block %in% train_blocks),]
+val_spac_2 <- image_group_2[(image_group_2$block %in% val_blocks),]
+test_spac_2 <- image_group_2[(image_group_2$block %in% test_blocks),]
+
+
+# Image 3
+image_group_3 <- within(img_3, {
+  grp.x = cut(x, 38, labels = FALSE)
+  grp.y = cut(y, 48, labels = FALSE)
+})
+
+# Combine into unique buckets
+image_group_3$id <- paste(as.character(image_group_3$grp.x),as.character(image_group_3$grp.y), sep = "+", collapse = NULL)
+image_group_3 <- image_group_3[with(image_group_3, order(grp.x, grp.y)),]
+ids <- data.frame(unique(image_group_3$id))
+ids$block <- seq(1,nrow(ids), by = 1)
+colnames(ids)[1] <- 'id'
+image_group_3 <- image_group_3 %>%
+  left_join(ids)
+image_group_3 <- image_group_3[,-c(12:14)]
+
+
+# Train-Val-Test Split
+set.seed(123)
+num_block <- length(unique(image_group_3$block))
+range_block <- c(1:num_block)
+train_blocks <- sample(num_block, 0.7*num_block)
+val_blocks <- sample(range_block[!range_block %in% train_blocks], 0.1*num_block)
+test_blocks <- range_block[(!range_block %in% train_blocks) & (!range_block %in% val_blocks)]
+train_spac_3 <- image_group_3[(image_group_3$block %in% train_blocks),]
+val_spac_3 <- image_group_3[(image_group_3$block %in% val_blocks),]
+test_spac_3 <- image_group_3[(image_group_3$block %in% test_blocks),]
+
+train_spac <- rbind(train_spac_1, train_spac_2)
+train_spac <- rbind(train_spac, train_spac_3)
+train_spac <- train_spac[,-12]
+val_spac <- rbind(val_spac_1, val_spac_2)
+val_spac <- rbind(val_spac, val_spac_3)
+val_spac <- val_spac[,-12]
+test_spac <- rbind(test_spac_1, test_spac_2)
+test_spac <- rbind(test_spac, test_spac_3)
+test_spac <- test_spac[,-12]
+```
+```{r}
+# New temporal splitting method Bin suggested:
+# Split each image into train-test, and then
+# train one model per image and predict on the rest
+train_temp_img1 <- train_spac_1
+val_temp_img1 <- val_spac_1
+test_temp_img1 <- test_spac_1
+
+train_temp_img2 <- train_spac_2
+val_temp_img2 <- val_spac_2
+test_temp_img2 <- test_spac_2
+
+train_temp_img3 <- train_spac_3
+val_temp_img3 <- val_spac_3
+test_temp_img3 <- test_spac_3
+```
+
+
+# (Baseline) Report the accuracy of a trivial classifier which sets all labels to -1 (cloud-free) on the validation set and on the test set. In what scenarios will such a classifier have high average accuracy? Hint: Such a step provides a baseline to ensure that the classification problems at hand is not trivial.
+
+```{r}
+# Temporal Split:
+sum(val_temp$label == -1)/sum(val_temp$label !=0)
+sum(test_temp$label == -1)/sum(test_temp$label !=0)
+
+# Spatial Split:
+sum(val_spac$label == -1)/sum(val_spac$label !=0)
+sum(test_spac$label == -1)/sum(test_spac$label != 0)
+
+# New temporal split:
+# Image 1
+sum(val_temp_img1$label == -1)/sum(val_temp_img1$label!=0)
+sum(test_temp_img1$label == -1)/sum(test_temp_img1$label !=0)
+
+# Image 2
+sum(val_temp_img2$label == -1)/sum(val_temp_img2$label !=0)
+sum(test_temp_img2$label == -1)/sum(test_temp_img2$label != 0)
+
+# Image 3
+sum(val_temp_img3$label == -1)/sum(val_temp_img3$label !=0)
+sum(test_temp_img3$label == -1)/sum(test_temp_img3$label !=0)
+```
+
+The trivial classifier will have high average accuracy if the majority of the dataset contains label -1.
+
+# (First order importance) Assuming the expert labels as the truth, and without using fancy classification methods, suggest three of the “best” features, using quantitative and visual justification. Define your “best” feature criteria clearly. Only the relevant plots are necessary. Be sure to give this careful consideration, as it relates to subsequent problems.
+
+The 3 best features mentioned in the paper are "SD", "NDAI", and "CORR". We can define the best feature criteria to imply features that help distinguish between the cloudy and non-cloudy classes easily.
+
+This means that when we map the histogram of a variable colored by the two different classes, there is a clear separation (two different distributions). If we look at the histograms above, we can see the features SD, NDAI, CORR are (for the most part) non-overlapping.
+
+We have to set a threshold rule and see the accuracy in classification of that feature. (i.e. if NDAI > 1 then classify as cloud and if NDAI < 1 classify as non-cloud). We then see the area under the curve that overlaps.
+
+The accuracies of the top 3 features are below.
+```{r}
+feat_acc_df
+```
+
+
+###Quantitative Analysis:
+
+We can run logistic regression and see the importance of each feature in classifying labels by seeing the weight on each coefficient.
+```{r}
+#img_1
+fit_glm_img_1 = glm(label~x + y + NDAI + SD + CORR + rad_angle_DF + rad_angle_CF + rad_angle_BF + rad_angle_AF + rad_angle_AN, data=img_1, family = "binomial")
+importance_img_1 = varImp(fit_glm_img_1, scale = FALSE)
+print(importance_img_1)
+```
+For img_1, most important features here:
+1) NDAI
+2) y
+3) x
+
+
+```{r}
+#img_2
+fit_glm_img_2 = glm(label~x + y + NDAI + SD + CORR + rad_angle_DF + rad_angle_CF + rad_angle_BF + rad_angle_AF + rad_angle_AN, data=img_2, family = "binomial")
+importance_img_2 = varImp(fit_glm_img_2, scale = FALSE)
+print(importance_img_2)
+```
+For img_2, most important features:
+1) NDAI
+2) rad_angle_AN
+3) CORR
+
+```{r}
+#img_3
+fit_glm_img_3 = glm(label~x + y + NDAI + SD + CORR + rad_angle_DF + rad_angle_CF + rad_angle_BF + rad_angle_AF + rad_angle_AN, data=img_3, family = "binomial")
+importance_img_3 = varImp(fit_glm_img_3, scale = FALSE)
+print(importance_img_3)
+```
+For img_3, most important features:
+1) NDAI
+2) y
+3) x
+
+
+Commentary: It seems that from this analysis NDAI, y, x, rad_angle_AN, and CORR are the most important features. However, since the angle features are highly correlated, we can throw the less important of the two out. This finding aligns with the paper in confirming that NDAI and CORR are important features.
+
+###Some Visual Analysis
+
+Correlation Plot
+
+```{r}
+#img_1
+library(mlbench)
+library(caret)
+correlationMatrix_1 <- cor(img_1[,c(1,2,4:11)])
+highlyCorrelated_1 <- findCorrelation(correlationMatrix_1, cutoff=0.4)
+
+#img_2
+correlationMatrix_2 <- cor(img_2[,c(1,2,4:11)])
+highlyCorrelated_2 <- findCorrelation(correlationMatrix_2, cutoff=0.4)
+
+#img_3
+correlationMatrix_3 <- cor(img_3[,c(1,2,4:11)])
+highlyCorrelated_3 <- findCorrelation(correlationMatrix_3, cutoff=0.4)
+```
+
+```{r}
+#img_1
+library(corrplot)
+corrplot(correlationMatrix_1, method="circle")
+```
+
+```{r}
+#img_2
+corrplot(correlationMatrix_2, method="circle")
+```
+
+```{r}
+#img_3
+corrplot(correlationMatrix_3, method="circle")
+```
+
+We can see more visual evidence that the radiance angles are highly correlated with each other and are therefore redundant in importance. NDAI, SD, and CORR are good features because they are relatively uncorrelated with other features.
+We've seen in earlier parts of this report that "SD", "NDAI", and "CORR" are not correlated with each other, whereas the angle features are highly correlated with each other.
+
+
+```{r, cache = TRUE, warning = FALSE}
+#Image 1 
+
+# define the control using a random forest selection function
+control <- rfeControl(functions=rfFuncs, method="cv", number=2)
+# run the RFE algorithm
+results <- rfe(img_1[,4:11], img_1[,3], rfeControl=control)
+# summarize the results
+print(results)
+# list the chosen features
+predictors(results)
+# plot the results
+plot(results, type=c("g", "o"))
+```
+Top 3 features for Img_1: NDAI, SD, CORR
+
+```{r, cache = TRUE, warning = FALSE}
+#Image 2 
+
+# run the RFE algorithm
+results <- rfe(img_2[,4:11], img_2[,3], rfeControl=control)
+# summarize the results
+print(results)
+# list the chosen features
+predictors(results)
+# plot the results
+plot(results, type=c("g", "o"))
+```
+Top 3 features for Img_2: NDAI, rad_angle_DF, CORR
+
+```{r, cache = TRUE, warning = FALSE}
+#Image 3 
+
+# run the RFE algorithm
+results <- rfe(img_3[,4:11], img_3[,3], rfeControl=control)
+# summarize the results
+print(results)
+# list the chosen features
+predictors(results)
+# plot the results
+plot(results, type=c("g", "o"))
+```
+Top 3 features for Img_3: NDAI, CORR, rad_angle_DF
+
+Although various methods of calculating feature importance will have varying outputs, it seems that we can come to a consensus that NDAI, CORR, SD are the best features based on our various methods of computing feature importance. 
+
+# Write a generic cross validation (CV) function CVgeneric in R that takes a generic classifier, training features, training labels, number of folds K and a loss function (at least classification accuracy should be there) as inputs and outputs the K-fold CV loss on the training set. Please remember to put it in your github folder in Section 5.
+
+```{r}
+# trainFeats will be a formula, not a data frame
+# Need to pre-process classes for logistic regression:
+# right now we have -1 and 1 but logistic needs 0 and 1,
+# so re-assign all -1 to be 0 and ignores original 0's.
+# classifier needs to be a character string
+
+# lossfunc can be cv error, hinge loss, logistic loss
+CVgeneric <- function(classifier, trainFeats, trainLabels, foldsK, lossFunc, training) {
+  set.seed(154)
+  folds <- createFolds(training[,trainLabels], k = foldsK)
+  acc_folds <- c()
+  formula <- as.formula(paste(trainLabels, "~", paste(trainFeats, collapse = "+"), sep = ""))
+  for (i in 1:length(folds)){
+    if (classifier == 'randomForest') {
+    model <- randomForest(formula, data=training[-c(folds[[i]]),], importance = TRUE)
+    pred_class <- predict(model, newdata = training[c(folds[[i]]),], type = 'class')
+    loss <- lossFunc(actual = as.numeric(as.character(training[c(folds[[i]]), trainLabels])), 
+                     predicted = as.numeric(as.character(pred_class)))
+    acc_folds[paste("fold", i, sep="")] <- 1- loss
+    } else {
+    model <- train(formula, data=training[-c(folds[[i]]),], method=classifier)
+    pred_class <- predict(model, newdata = training[c(folds[[i]]),], "raw")
+    loss <- lossFunc(actual = as.numeric(as.character(training[c(folds[[i]]), trainLabels])), 
+                     predicted = as.numeric(as.character(pred_class)))
+    acc_folds[paste("fold", i, sep="")] <- 1 - loss}
+  }
+  return (acc_folds)
+}
+```
+
+## Modeling (40 pts)
+
+#3a)
+We started out with the idea of trying out using logistic regression, decision trees, random forest, KNN, LDA, QDA, and SVM as classifiers on our data but decided to narrow down our classification methods to just logistic regression, LDA, QDA, and Random Forest. We made this decision because the runtime of SVM and KNN was far too long and infeasible to tune on.
+
+We decided to use MSE as our loss function when running CV generic but other possible loss functions include: 
+CV error: sum i = 1 to n, 1 if y_predicted = y_actual, 
+Hinge loss: (1-y_i_hat * y_i)  
+Logistic loss: (y_i_hat * y_i + log(1 + exp(y_i_hat)))
+
+We also decided to use the following covariates in our classification methods: CORR, SD, NDAI, and rad_angle_AN. In our new temporal split method, we added in x and y as covariates in order to increase acccuracy.
+
+
+# Try several classification methods and assess their fit using cross-validation (CV). Provide a commentary on the assumptions for the methods you tried and if they are satisfied in this case. Since CV does not have a validation set, you can merge your training and validation set to fit your CV model. Report the accuracies across folds (and not just the average across folds) and the test accuracy. CV-results for both the ways of creating folds (as answered in part 2(a)) should be reported. Provide a brief commentary on the results. Make sure you honestly mention all the classification methods you have tried.
+
+###Logistic regression
+Assumptions of Logistic Regression:
+1) the dependent variable is binary
+2) observations are independent of each other
+3) little or no multicollinearity among the independent variables
+4) linearity of independent variables
+5) large sample size
+
+The first assumption is satified if we throw out the unlabeled data points and classify cloudy as 1 and not cloudy as -1. Assumption #2 is technically not satisified since the pixels are not iid (as described in the beginning of the report). Assumption 3 is satisfied because we took out the highly correlated angle predictors and decided to only use rad_angle_AN as a covariate in our regression, along with SD, CORR, and NDAI (all of which have little colinearity between them).
+Assumption 4 and 5 are justly satisfied.
+
+If we ran logistic regression on our temporal split, we would not satisfy the iid assumption. 
+For the spatial split, we assume the blocks we created are iid and randomly sampling from that will satisfy our independence assumption. Our new split is also a spatial split on each image so we will satisfy the independence assumption.
+
+```{r}
+refactor <- function(old_df, factor_name){
+  old_df[,factor_name] <- as.numeric(as.character(old_df[,factor_name]))
+  new_df <- old_df[old_df[,factor_name]!=0,]
+  labels <- new_df[,factor_name]
+  labels[labels == -1] <- 0
+  new_df[,factor_name] <- as.factor(labels)
+  levels(new_df[,factor_name]) <- c(0,1)
+  return (new_df)
+}
+```
+
+```{r}
+#pre-processing the label class to be 0-1, taking out the unclear labels
+train_temp_new <- refactor(old_df = rbind(train_temp, val_temp), factor_name = 'label')
+train_spac_new <- refactor(old_df = rbind(train_spac, val_spac), factor_name = 'label')
+train_temp_img1_new <- refactor(old_df = rbind(train_temp_img1, val_temp_img1), factor = 'label')
+train_temp_img2_new <- refactor(old_df = rbind(train_temp_img2, val_temp_img2), factor = 'label')
+train_temp_img3_new <- refactor(old_df = rbind(train_temp_img3, val_temp_img3), factor = 'label')
+test_temp_new <- refactor(old_df = test_temp, factor_name = 'label')
+test_spac_new <- refactor(old_df = test_spac, factor_name = 'label')
+test_temp_img1_new <- refactor(old_df = test_temp_img1, factor = 'label')
+test_temp_img2_new <- refactor(old_df = test_temp_img2, factor = 'label')
+test_temp_img3_new <- refactor(old_df = test_temp_img3, factor = 'label')
+```
+
+```{r, cache = TRUE}
+# CV accuracy, temporal split
+CVgeneric(classifier = "glm" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_new)
+```
+
+```{r, cache = TRUE}
+# CV accuracy, spatial split
+CVgeneric(classifier = "glm" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_spac_new)
+```
+
+```{r, cache = TRUE}
+# CV accuracy, new split
+# Image 1
+CVgeneric(classifier = "glm" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img1_new)
+
+# Image 2
+CVgeneric(classifier = "glm" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img2_new)
+
+# Image 3
+CVgeneric(classifier = "glm" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img3_new)
+```
+
+```{r, cache=TRUE}
+# Test accuracy, temporal split
+pred_list_temp <- c()
+auc_temp <- c()
+train_temp_new_num <- train_temp_new
+train_temp_new_num$label <- as.numeric(as.character(train_temp_new_num$label))
+model <- glm(label ~ CORR + SD + NDAI+ rad_angle_AN, data=train_temp_new_num, family = 'binomial')
+pred_prob <- predict(model, newdata = test_temp_new, 'response')
+auc_temp['logistic'] <- prediction(pred_prob,  test_temp_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+pred_list_temp[['logistic']] <- c(pred_prob)
+pred_class <- ifelse(pred_prob >= 0.5, 1, 0)
+mean(test_temp_new$label == pred_class) # accuracy rate
+```
+
+```{r, cache=TRUE}
+# Test accuracy, spatial split
+pred_list_spac <- c()
+auc_spac <- c()
+train_spac_new_num <- train_spac_new
+train_spac_new_num$label <- as.numeric(as.character(train_spac_new_num$label))
+model <- glm(label ~ CORR + SD + NDAI+ rad_angle_AN, data=train_spac_new_num, family = 'binomial')
+pred_prob <- predict(model, newdata = test_spac_new, 'response')
+auc_spac['logistic'] <- prediction(pred_prob,  test_spac_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+pred_list_spac[['logistic']] <- c(pred_prob)
+pred_class <- ifelse(pred_prob >= 0.5, 1, 0)
+mean(test_spac_new$label == pred_class) # accuracy rate
+```
+
+```{r, cache = TRUE}
+# Test accuracy, new split
+# Image 1
+pred_list_split1 <- c()
+auc_split1 <- c()
+train_temp_img1_new_num <- train_temp_img1_new
+train_temp_img1_new_num$label <- as.numeric(as.character(train_temp_img1_new_num$label))
+model <- glm(label ~ x + y + CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img1_new_num, family = 'binomial')
+pred_prob <- predict(model, newdata = test_temp_img1_new, 'response')
+auc_split1['logistic'] <- prediction(pred_prob, test_temp_img1_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+pred_list_split1[['logistic']] <- c(pred_prob)
+pred_class <- ifelse(pred_prob >= 0.5, 1, 0)
+mean(test_temp_img1_new$label == pred_class) # accuracy rate
+
+# Image 2
+pred_list_split2 <- c()
+auc_split2 <- c()
+train_temp_img2_new_num <- train_temp_img2_new
+train_temp_img2_new_num$label <- as.numeric(as.character(train_temp_img2_new_num$label))
+model <- glm(label ~ x + y +CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img2_new_num, family = 'binomial')
+pred_prob <- predict(model, newdata = test_temp_img2_new, 'response')
+auc_split2['logistic'] <- prediction(pred_prob, test_temp_img2_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+pred_list_split2[['logistic']] <- c(pred_prob)
+pred_class <- ifelse(pred_prob >= 0.5, 1, 0)
+mean(test_temp_img2_new$label == pred_class) # accuracy rate
+
+# Image 3
+pred_list_split3 <- c()
+auc_split3 <- c()
+train_temp_img3_new_num <- train_temp_img3_new
+train_temp_img3_new_num$label <- as.numeric(as.character(train_temp_img3_new_num$label))
+model <- glm(label ~ x + y +CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img3_new_num, family = 'binomial')
+pred_prob <- predict(model, newdata = test_temp_img3_new, 'response')
+auc_split3['logistic'] <- prediction(pred_prob, test_temp_img3_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+pred_list_split3[['logistic']] <- c(pred_prob)
+pred_class <- ifelse(pred_prob >= 0.5, 1, 0)
+mean(test_temp_img3_new$label == pred_class) # accuracy rate
+```
+
+###LDA
+Assumptions for LDA:  
+1) Multivariate normality: Independent variables are normal for each level of the grouping variable  
+2) Homoskedasticity - the covariance of each of the classes is identical  
+3) No multicollinearity  
+4) Independence  
+
+The multivariate normality assumption and homoskedasticity assumption are technically not met but we will run the LDA classifier for the sake of comparison.
+```{r, cache = TRUE}
+# CV accuracy, temporal split
+CVgeneric(classifier = "lda" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_new)
+```
+
+```{r, cache = TRUE}
+# CV accuracy, spatial split
+CVgeneric(classifier = "lda" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_spac_new)
+```
+
+```{r, cache = TRUE}
+# CV accuracy, new split
+# Image 1
+CVgeneric(classifier = "lda" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img1_new)
+
+# Image 2
+CVgeneric(classifier = "lda" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img2_new)
+
+# Image 3
+CVgeneric(classifier = "lda" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img3_new)
+```
+
+```{r, cache = TRUE}
+# log loss for temporal split
+CVgeneric(classifier = "lda" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = logLoss, training = train_temp_new)
+```
+
+```{r, cache=TRUE}
+# Test accuracy, temporal split
+model <- lda(label ~ CORR + SD + NDAI+ rad_angle_AN, data=train_temp_new)
+pred_class <- predict(model, newdata = test_temp_new)$class
+pred_list_temp[['lda']] <- predict(model, newdata = test_temp_new)$posterior[,2]
+auc_temp['lda'] <- prediction(predict(model, newdata = test_temp_new)$posterior[,2], test_temp_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_temp_new$label == pred_class) # accuracy rate
+```
+
+```{r, cache=TRUE}
+# Test accuracy, spatial split
+model <- lda(label ~ CORR + SD + NDAI+ rad_angle_AN, data=train_spac_new)
+auc_spac['lda'] <- prediction(predict(model, newdata = test_spac_new)$posterior[,2], test_spac_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+pred_class <- predict(model, newdata = test_spac_new)$class
+pred_list_spac[['lda']] <- predict(model, newdata = test_spac_new)$posterior[,2]
+mean(test_spac_new$label == pred_class) # accuracy rate
+```
+
+```{r, cache = TRUE}
+# Test accuracy, new split
+# Image 1
+model <- lda(label ~ x + y+ CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img1_new)
+pred_class <- predict(model, newdata = test_temp_img1_new)$class
+pred_list_split1[['lda']] <-  predict(model, newdata = test_temp_img1_new)$posterior[,2]
+auc_split1['lda'] <- prediction(predict(model, newdata = test_temp_img1_new)$posterior[,2], test_temp_img1_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_temp_img1_new$label == pred_class) # accuracy rate
+
+# Image 2
+model <- lda(label ~ x + y+CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img2_new_num)
+pred_class <- predict(model, newdata = test_temp_img2_new)$class
+pred_list_split2[['lda']] <-  predict(model, newdata = test_temp_img2_new)$posterior[,2]
+auc_split2['lda'] <- prediction(predict(model, newdata = test_temp_img2_new)$posterior[,2], test_temp_img2_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_temp_img2_new$label == pred_class) # accuracy rate
+
+# Image 3
+model <- lda(label ~ x + y+CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img3_new_num)
+pred_class <- predict(model, newdata = test_temp_img3_new)$class
+pred_list_split3[['lda']] <-  predict(model, newdata = test_temp_img3_new)$posterior[,2]
+auc_split3['lda'] <- prediction(predict(model, newdata = test_temp_img3_new)$posterior[,2], test_temp_img3_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_temp_img3_new$label == pred_class) # accuracy rate
+```
+
+###QDA
+
+Assumptions for QDA:
+1) variance-covariance matrices for each class are different from each other
+2) Multivariate Normality 
+3) independence
+
+Variance Covariance matrices for each class are indeed different. 
+```{r, cache = TRUE}
+# CV accuracy, temporal split
+CVgeneric(classifier = "qda" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_new)
+```
+
+```{r, cache = TRUE}
+# CV accuracy, spatial split
+CVgeneric(classifier = "qda" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_spac_new)
+```
+
+```{r, cache = TRUE}
+# CV accuracy, new split
+# Image 1
+CVgeneric(classifier = "qda" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img1_new)
+
+# Image 2
+CVgeneric(classifier = "qda" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img2_new)
+
+# Image 3
+CVgeneric(classifier = "qda" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img3_new)
+```
+
+```{r, cache=TRUE}
+# Test accuracy, temporal split
+model <- qda(label ~ CORR + SD + NDAI+ rad_angle_AN , data=train_temp_new)
+pred_class <- predict(model, newdata = test_temp_new)$class
+pred_list_temp[['qda']] <- predict(model, newdata = test_temp_new)$posterior[,2]
+auc_temp['qda'] <- prediction(predict(model, newdata = test_temp_new)$posterior[,2], test_temp_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_temp_new$label == pred_class) # accuracy rate
+```
+
+```{r, cache=TRUE}
+# Test accuracy, spatial split
+model <- qda(label ~ CORR + SD + NDAI+ rad_angle_AN , data=train_spac_new)
+pred_class <- predict(model, newdata = test_spac_new)$class
+pred_list_spac[['qda']] <- predict(model, newdata = test_spac_new)$posterior[,2]
+auc_spac['qda'] <- prediction(predict(model, newdata = test_spac_new)$posterior[,2], test_spac_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_spac_new$label == pred_class) # accuracy rate
+```
+
+```{r, cache = TRUE}
+# Test accuracy, new split
+# Image 1
+model <- qda(label ~ x + y+CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img1_new)
+pred_class <- predict(model, newdata = test_temp_img1_new)$class
+pred_list_split1[['qda']] <- predict(model, newdata = test_temp_img1_new)$posterior[,2]
+auc_split1['qda'] <- prediction(predict(model, newdata = test_temp_img1_new)$posterior[,2], test_temp_img1_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_temp_img1_new$label == pred_class) # accuracy rate
+
+# Image 2
+model <- qda(label ~ x + y+CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img2_new)
+pred_class <- predict(model, newdata = test_temp_img2_new)$class
+pred_list_split2[['qda']] <- predict(model, newdata = test_temp_img2_new)$posterior[,2]
+auc_split2['qda'] <- prediction(predict(model, newdata = test_temp_img2_new)$posterior[,2], test_temp_img2_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_temp_img2_new$label == pred_class) # accuracy rate
+
+# Image 3
+model <- qda(label ~ x + y+CORR + SD + NDAI+ rad_angle_AN, data=train_temp_img3_new)
+pred_class <- predict(model, newdata = test_temp_img3_new)$class
+pred_list_split3[['qda']] <- predict(model, newdata = test_temp_img3_new)$posterior[,2]
+auc_split3['qda'] <- prediction(predict(model, newdata = test_temp_img3_new)$posterior[,2], test_temp_img3_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(test_temp_img3_new$label == pred_class) # accuracy rate
+```
+
+###Random Forest
+
+Assumptions for Random Forest:
+1) Data sample is representative
+
+Because our data are images are 3 different orbital pictures of a region along path 26 in the orbit, we can safely assume our data is representative. We make the assumption that all future data coming in is in the same format and have the same features and have x and y coordinates to cut the future image into blocks.
+```{r, cache = TRUE}
+# CV accuracy, temporal split
+CVgeneric(classifier = "randomForest" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_new)
+```
+
+```{r, cache = TRUE}
+# CV accuracy, spatial split
+CVgeneric(classifier = "randomForest" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_spac_new)
+```
+
+```{r, cache = TRUE}
+# CV accuracy, new split
+# Image 1
+CVgeneric(classifier = "randomForest" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img1_new)
+
+# Image 2
+CVgeneric(classifier = "randomForest" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img2_new)
+
+# Image 3
+CVgeneric(classifier = "randomForest" , trainFeats = c("x","y","CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_img3_new)
+```
+
+```{r, cache = TRUE}
+# Test accurady, temporal split
+model <- randomForest(label ~ CORR+SD+NDAI+rad_angle_AN, data = train_temp_new, importance = TRUE)
+rf_temp <- predict(model, test_temp_new, type = "class")
+pred_list_temp[['randomForest']] <- predict(model, test_temp_new, type = "prob")[,2]
+auc_temp['randomForest'] <- prediction(predict(model, test_temp_new, type = "prob")[,2], test_temp_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(rf_temp == test_temp_new$label) # accuracy rate
+```
+
+```{r, cache = TRUE}
+# Test accurady, spatial split
+model <- randomForest(label ~ CORR+SD+NDAI+rad_angle_AN, data = train_spac_new, importance = TRUE)
+rf_spac <- predict(model, test_spac_new, type = "class")
+pred_list_spac[['randomForest']] <- predict(model, test_spac_new, type = "prob")[,2]
+auc_spac['randomForest'] <- prediction(predict(model, test_spac_new, type = "prob")[,2], test_spac_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(rf_spac == test_spac_new$label) # accuracy rate
+```
+
+```{r, cache = TRUE}
+# Test accurady, new split
+model1 <- randomForest(label ~ x + y+CORR+SD+NDAI+rad_angle_AN, data = train_temp_img1_new, importance = TRUE)
+rf_split1 <- predict(model1, test_temp_img1_new, type = "class")
+pred_list_split1[['randomForest']] <- predict(model1, test_temp_img1_new, type = "prob")[,2]
+auc_split1['randomForest'] <- prediction(predict(model1, test_temp_img1_new, type = "prob")[,2], test_temp_img1_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(rf_split1 == test_temp_img1_new$label)
+
+model2 <- randomForest(label ~ x + y+CORR+SD+NDAI+rad_angle_AN, data = train_temp_img2_new, importance = TRUE)
+rf_split2 <- predict(model2, test_temp_img2_new, type = "class")
+pred_list_split2[['randomForest']] <- predict(model2, test_temp_img2_new, type = "prob")[,2]
+auc_split2['randomForest'] <- prediction(predict(model2, test_temp_img2_new, type = "prob")[,2], test_temp_img2_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(rf_split2 == test_temp_img2_new$label)   
+
+model3 <- randomForest(label ~ x + y+CORR+SD+NDAI+rad_angle_AN, data = train_temp_img3_new, importance = TRUE)
+rf_split3 <- predict(model3, test_temp_img3_new, type = "class")
+pred_list_split3[['randomForest']] <- predict(model3, test_temp_img3_new, type = "prob")[,2]
+auc_split3['randomForest'] <- prediction(predict(model3, test_temp_img3_new, type = "prob")[,2], test_temp_img3_new$label) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+mean(rf_split3 == test_temp_img3_new$label)   
+```
+
+Brief commentary: Among the four classifiers we tried, random forest seems to perform the best out of all. Random forest has the highest test accuracy as well as CV accuracy across all splitting methods as well, making it the best classifier by a large margin. It is worth noting that LDA and logistic regression have comparable CV accuracy to random forest, although neither LDA nor logistic performs nearly as well on the test set. Different splitting methods lead to hugely different CV accuracy as well as test accuracy, suggesting some splitting methods are more preferable than others when it comes to maximizing test/CV accuracy.
+
+# Use ROC curves to compare the different methods. Choose a cutoff value and highlight it on the ROC curve. Explain your choice of the cutoff value.
+
+Temporal ROC
+
+```{r, cache = TRUE}
+m <- length(pred_list_temp)
+actuals_list <- rep(list(test_temp_new$label), m)
+```
+
+ROC Curves, Temporal Split
+
+```{r}
+roc_df_gen <- function(pred_list, actuals_list, tr, fr){
+  for (i in 1:m){
+    pred <- prediction(predictions = pred_list[[i]], labels = actuals_list[[1]])
+    roc <- performance(pred, tr, fr)
+    df <- data.frame(as.numeric(unlist(roc@x.values)),as.numeric(unlist(roc@y.values)))
+    colnames(df) <- c(fr, tr)
+    df$classifier <- names(pred_list)[i]
+    nam <- paste("df", i, sep = "")
+    assign(nam, df)
+  }
+  roc_df <- do.call("rbind", list(df1,df2,df3,df4))
+  roc_df$distance <- sqrt((roc_df[,tr]-1)^2 + roc_df[,fr]^2)
+  return (roc_df)
+}
+```
+
+```{r, cache = TRUE}
+roc_curve_temp_pos <- roc_df_gen(pred_list_temp, actuals_list, 'tpr', 'fpr')
+
+# In one plot
+ggplot(roc_curve_temp_pos, aes(x = fpr, y = tpr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.2122575, y = 0.9070817), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.2119025, y = 0.9068936), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.2159252, y = 0.8923164), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.1117487, y = 0.9006865), size = 0.3, color = 'red') +
+  xlab('False Positive Rate') + 
+  ylab('True Positive Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Temporal Split')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_temp_pos %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+
+Negative ROC for Temporal Split
+```{r, cache = TRUE}
+roc_curve_temp_neg <- roc_df_gen(pred_list_temp, actuals_list, 'tnr', 'fnr')
+
+ggplot(roc_curve_temp_neg, aes(x = fnr, y = tnr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.09291827, y = 0.7877425), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.09310637, y = 0.7880975), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.10768363, y = 0.7840748), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.09931346, y = 0.8882513), size = 0.3, color = 'red') +
+  xlab('False Negative Rate') + 
+  ylab('True Negative Rate') + 
+  theme_gdocs()+
+  labs(caption = 'Temporal Split')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_temp_neg %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+Spatial ROC
+
+```{r, cache = TRUE}
+m <- length(pred_list_spac)
+actuals_list <- rep(list(test_spac_new$label), m)
+```
+
+```{r, cache = TRUE}
+roc_curve_spac_pos <- roc_df_gen(pred_list_spac, actuals_list, 'tpr', 'fpr')
+
+# In one plot
+ggplot(roc_curve_spac_pos, aes(x = fpr, y = tpr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.11446471, y = 0.9240361), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.12151779, y = 0.9254428), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.10382600, y = 0.9350982), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.05894637, y = 0.9524906), size = 0.3, color = 'red')+
+  xlab('False Positive Rate') + 
+  ylab('True Positive Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Spatial Split')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_spac_pos %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+Negative ROC, Spatial Split
+```{r, cache = TRUE}
+roc_curve_spac_neg <- roc_df_gen(pred_list_spac, actuals_list, 'tnr', 'fnr')
+
+# In one plot
+ggplot(roc_curve_spac_neg, aes(x = fnr, y = tnr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.07596394, y = 0.8855353), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.07455720, y = 0.8784822), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.06490185, y = 0.8961740), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.04750943, y = 0.9410536), size = 0.3, color = 'red')+
+  xlab('False Negative Rate') + 
+  ylab('True Negative Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Spatial Split')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_spac_neg %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+Positive ROC CURVE FOR NEW SPLIT METHOD on Img_1 
+#(might need to fix)
+
+```{r, cache = TRUE}
+m <- length(pred_list_split1)
+actuals_list <- rep(list(test_temp_img1_new$label), m)
+```
+
+```{r, cache = TRUE}
+# Plot the New Split ROC curves
+roc_curve_new_split_pos <- roc_df_gen(pred_list_split1, actuals_list, 'tpr', 'fpr')
+
+# In one plot
+ggplot(roc_curve_new_split_pos, aes(x = fpr, y = tpr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.07199221, y = 0.9709133), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.07247930, y = 0.9575334), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.06030200, y = 0.9828389), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.00428641, y = 0.9944735), size = 0.3, color = 'red')+
+  xlab('False Positive Rate') + 
+  ylab('True Positive Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Revised Split: Image 1')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_new_split_pos %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+ROC CURVE WITH NEGATIVE RATES, New Split on Img_1
+```{r}
+#negative ROC for New Split
+roc_curve_new_split1_neg <- roc_df_gen(pred_list_split1, actuals_list, 'tnr', 'fnr')
+
+# In one plot
+ggplot(roc_curve_new_split1_neg, aes(x = fnr, y = tnr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.029086678, y = 0.9280078), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.042466550, y = 0.9275207), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.017161140, y = 0.9396980), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.005526469, y = 0.9957136), size = 0.3, color = 'red')+
+  xlab('False Negative Rate') + 
+  ylab('True Negative Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Revised Split: Image 1')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_new_split1_neg %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+
+
+Positive ROC CURVE FOR NEW SPLIT METHOD on Img_2 
+
+```{r, cache = TRUE}
+m <- length(pred_list_split2)
+actuals_list <- rep(list(test_temp_img2_new$label), m)
+```
+
+```{r, cache = TRUE}
+# Plot the New Split ROC curves
+roc_curve_new_split2_pos <- roc_df_gen(pred_list_split2, actuals_list, 'tpr', 'fpr')
+
+# In one plot
+ggplot(roc_curve_new_split2_pos, aes(x = fpr, y = tpr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.007903301, y = 0.9885779), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.008833101, y = 0.9908372), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.008600651, y = 0.9966110), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.000000000, y = 0.9996234), size = 0.3, color = 'red')+
+  xlab('False Positive Rate') + 
+  ylab('True Positive Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Revised Split: Image 2')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_new_split2_pos %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+
+
+ROC CURVE WITH NEGATIVE RATES, New Split on Img_1
+```{r}
+#negative ROC for New Split
+roc_curve_new_split2_neg <- roc_df_gen(pred_list_split2, actuals_list, 'tnr', 'fnr')
+
+# In one plot
+ggplot(roc_curve_new_split2_neg, aes(x = fnr, y = tnr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.0114221162, y = 0.9920967), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.0091627965, y = 0.9911669), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.0033889795, y = 0.9913993), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.0003765533, y = 1.0000000), size = 0.3, color = 'red')+
+  xlab('False Negative Rate') + 
+  ylab('True Negative Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Revised Split: Image 2')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_new_split2_neg %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+
+Positive ROC CURVE FOR NEW SPLIT METHOD on Img_3 
+```{r, cache = TRUE}
+m <- length(pred_list_split3)
+actuals_list <- rep(list(test_temp_img3_new$label), m)
+```
+
+```{r, cache = TRUE}
+# Plot the New Split ROC curves
+roc_curve_new_split3_pos <- roc_df_gen(pred_list_split3, actuals_list, 'tpr', 'fpr')
+
+# In one plot
+ggplot(roc_curve_new_split3_pos, aes(x = fpr, y = tpr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.1019969278, y = 0.9584317), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.1010752688, y = 0.9619745), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.1055299539, y = 0.9506377), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.0004608295, y = 0.9990553), size = 0.3, color = 'red')+
+  xlab('False Positive Rate') + 
+  ylab('True Positive Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Revised Split: Image 3')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_new_split3_pos %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+ROC CURVE WITH NEGATIVE RATES, New Split on Img_3
+```{r}
+#negative ROC for New Split
+roc_curve_new_split3_neg <- roc_df_gen(pred_list_split3, actuals_list, 'tnr', 'fnr')
+
+# In one plot
+ggplot(roc_curve_new_split3_neg, aes(x = fnr, y = tnr)) + 
+  geom_line(aes(color = classifier)) +
+  geom_point(aes(x = 0.0415682570, y = 0.8980031), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.0380255078, y = 0.8989247), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.0493623051, y = 0.8944700), size = 0.3, color = 'red')+
+  geom_point(aes(x = 0.0009447331, y = 0.9995392), size = 0.3, color = 'red')+
+  xlab('False Negative Rate') + 
+  ylab('True Negative Rate') + 
+  theme_gdocs() +
+  labs(caption = 'Revised Split: Image 3')+ theme(
+  plot.caption = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Cutoff
+roc_curve_new_split3_neg %>%
+  group_by(classifier) %>%
+  slice(which.min(distance))
+```
+
+# (Bonus) Assess the fit using other relevant metrics.
+
+We chose to look at the margin of the predicted values, which is the absolute difference of the predicted probability of being in class 1 and the cutoff value 0.5. By looking at the margin of correctly predicted entries and incorrectly predicted entries seperately, we were able to get a sense of how confident the classifier is on average, and were able to use the margin as a proxy for model performance. 
+
+```{r}
+# Temporal
+temp_margin <- test_temp_new
+temp_margin$logistic <- pred_list_temp[['logistic']]
+temp_margin$lda <- pred_list_temp[['lda']]
+temp_margin$qda <- pred_list_temp[['qda']]
+temp_margin$randomForest <- pred_list_temp[['randomForest']]
+temp_margin <- temp_margin[,c(3, 12:15)]
+temp_margin <- melt(temp_margin, id.vars = 'label', 
+                                   variable.name = 'classifier', value.name = 'pred_prob')
+temp_margin$diff <- temp_margin$pred_prob - 0.5
+temp_margin$cutoff <- (temp_margin$diff > 0 & temp_margin$label == 0) | (temp_margin$diff < 0 & temp_margin$label == 1)
+temp_margin_correct <- temp_margin[temp_margin$cutoff == 0,-5]
+temp_margin_incorrect <- temp_margin[temp_margin$cutoff == 1,-5]
+temp_margin_incorrect$group <- cut(abs(temp_margin_incorrect$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+temp_margin_correct$group <- cut(abs(temp_margin_correct$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+temp_margin_incorrect %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+
+temp_margin_correct %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+```
+
+```{r}
+# distribution of margin, temporal
+temp_margin$cutoff <- ifelse(temp_margin$cutoff == 0, 'Correctly Classified', 'Incorrectly Classified')
+ggplot(temp_margin, aes(x = abs(diff), color = classifier, fill = classifier, y = ..scaled..)) +   geom_density(alpha = 0.1)  +
+  facet_grid(cutoff~.,scales = "free_y") +
+  theme_gdocs() + 
+  xlab('Margin') +
+  ylab('Density') +  
+  labs(caption = 'Temporal Split')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+```{r}
+# Spatial
+spac_margin <- test_spac_new
+spac_margin$logistic <- pred_list_spac[['logistic']]
+spac_margin$lda <- pred_list_spac[['lda']]
+spac_margin$qda <- pred_list_spac[['qda']]
+spac_margin$randomForest <- pred_list_spac[['randomForest']]
+spac_margin <- spac_margin[,c(3, 12:15)]
+spac_margin <- melt(spac_margin, id.vars = 'label', 
+                                   variable.name = 'classifier', value.name = 'pred_prob')
+spac_margin$diff <- spac_margin$pred_prob - 0.5
+spac_margin$cutoff <- (spac_margin$diff > 0 & spac_margin$label == 0) | (spac_margin$diff < 0 & spac_margin$label == 1)
+spac_margin_correct <- spac_margin[spac_margin$cutoff == 0,-5]
+spac_margin_incorrect <- spac_margin[spac_margin$cutoff == 1,-5]
+spac_margin_incorrect$group <- cut(abs(spac_margin_incorrect$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+spac_margin_correct$group <- cut(abs(spac_margin_correct$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+spac_margin_incorrect %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+
+spac_margin_correct %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+```
+
+```{r}
+# distribution of margin, spatial
+spac_margin$cutoff <- ifelse(spac_margin$cutoff == 0, 'Correctly Classified', 'Incorrectly Classified')
+ggplot(spac_margin, aes(x = abs(diff), color = classifier, fill = classifier, y = ..scaled..)) +   geom_density(alpha = 0.1)  +
+  facet_grid(cutoff~.,scales = "free_y") +
+  theme_gdocs() + 
+  xlab('Margin') +
+  ylab('Density') +  
+  labs(caption = 'Spatial Split')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+```{r}
+# New split, image 1
+split1_margin <- test_temp_img1_new
+split1_margin$logistic <- pred_list_split1[['logistic']]
+split1_margin$lda <- pred_list_split1[['lda']]
+split1_margin$qda <- pred_list_split1[['qda']]
+split1_margin$randomForest <- pred_list_split1[['randomForest']]
+split1_margin <- split1_margin[,c(3, 13:16)]
+split1_margin <- melt(split1_margin, id.vars = 'label', 
+                                   variable.name = 'classifier', value.name = 'pred_prob')
+split1_margin$diff <- split1_margin$pred_prob - 0.5
+split1_margin$cutoff <- (split1_margin$diff > 0 & split1_margin$label == 0) | (split1_margin$diff < 0 & split1_margin$label == 1)
+split1_margin_correct <- split1_margin[split1_margin$cutoff == 0,-5]
+split1_margin_incorrect <- split1_margin[split1_margin$cutoff == 1,-5]
+split1_margin_incorrect$group <- cut(abs(split1_margin_incorrect$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+split1_margin_correct$group <- cut(abs(split1_margin_correct$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+split1_margin_incorrect %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+
+split1_margin_correct %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+```
+
+```{r}
+# distribution of margin, image 1
+split1_margin$cutoff <- ifelse(split1_margin$cutoff == 0, 'Correctly Classified', 'Incorrectly Classified')
+ggplot(split1_margin, aes(x = abs(diff), color = classifier, fill = classifier, y = ..scaled..)) +   geom_density(alpha = 0.1)  +
+  facet_grid(cutoff~.,scales = "free_y") +
+  theme_gdocs() + 
+  xlab('Margin') +
+  ylab('Density') +  
+  labs(caption = 'Revised Split: Image 1')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+```{r}
+# New split, image 2
+split2_margin <- test_temp_img2_new
+split2_margin$logistic <- pred_list_split2[['logistic']]
+split2_margin$lda <- pred_list_split2[['lda']]
+split2_margin$qda <- pred_list_split2[['qda']]
+split2_margin$randomForest <- pred_list_split2[['randomForest']]
+split2_margin <- split2_margin[,c(3, 13:16)]
+split2_margin <- melt(split2_margin, id.vars = 'label', 
+                                   variable.name = 'classifier', value.name = 'pred_prob')
+split2_margin$diff <- split2_margin$pred_prob - 0.5
+split2_margin$cutoff <- (split2_margin$diff > 0 & split2_margin$label == 0) | (split2_margin$diff < 0 & split2_margin$label == 1)
+split2_margin_correct <- split2_margin[split2_margin$cutoff == 0,-5]
+split2_margin_incorrect <- split2_margin[split2_margin$cutoff == 1,-5]
+split2_margin_incorrect$group <- cut(abs(split2_margin_incorrect$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+split2_margin_correct$group <- cut(abs(split2_margin_correct$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+split2_margin_incorrect %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+
+split2_margin_correct %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+```
+
+```{r}
+# distribution of margin, image 2
+split2_margin$cutoff <- ifelse(split2_margin$cutoff == 0, 'Correctly Classified', 'Incorrectly Classified')
+ggplot(split2_margin, aes(x = abs(diff), color = classifier, fill = classifier, y = ..scaled..)) +   geom_density(alpha = 0.1)  +
+  facet_grid(cutoff~.,scales = "free_y") +
+  theme_gdocs() + 
+  xlab('Margin') +
+  ylab('Density') +  
+  labs(caption = 'Revised Split: Image 2')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+```{r}
+# New split, image 3
+split3_margin <- test_temp_img3_new
+split3_margin$logistic <- pred_list_split3[['logistic']]
+split3_margin$lda <- pred_list_split3[['lda']]
+split3_margin$qda <- pred_list_split3[['qda']]
+split3_margin$randomForest <- pred_list_split3[['randomForest']]
+split3_margin <- split3_margin[,c(3, 13:16)]
+split3_margin <- melt(split3_margin, id.vars = 'label', 
+                                   variable.name = 'classifier', value.name = 'pred_prob')
+split3_margin$diff <- split3_margin$pred_prob - 0.5
+split3_margin$cutoff <- (split3_margin$diff > 0 & split3_margin$label == 0) | (split3_margin$diff < 0 & split3_margin$label == 1)
+split3_margin_correct <- split3_margin[split3_margin$cutoff == 0,-5]
+split3_margin_incorrect <- split3_margin[split3_margin$cutoff == 1,-5]
+split3_margin_incorrect$group <- cut(abs(split3_margin_incorrect$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+split3_margin_correct$group <- cut(abs(split3_margin_correct$diff), breaks=seq(0, 0.5, 0.05), include.lowest=TRUE)
+split3_margin_incorrect %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+
+split3_margin_correct %>%
+  group_by(classifier) %>%
+  summarise(average_margin = mean(abs(diff)), median_margin= median(abs(diff)), quartile_1 = quantile(abs(diff), 0.25), quartile_3 = quantile(abs(diff), 0.75))
+```
+
+```{r}
+# distribution of margin, image 3
+split3_margin$cutoff <- ifelse(split3_margin$cutoff == 0, 'Correctly Classified', 'Incorrectly Classified')
+ggplot(split3_margin, aes(x = abs(diff), color = classifier, fill = classifier, y = ..scaled..)) +   geom_density(alpha = 0.1)  +
+  facet_grid(cutoff~.,scales = "free_y") +
+  theme_gdocs() + 
+  xlab('Margin') +
+  ylab('Density') +  
+  labs(caption = 'Revised Split: Image 3')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+## Diagnostics (50 pts)
+
+Disclaimer: The questions in this section are open-ended. Be visual and quantitative! The gold standard arguments would be able to convince National Aeronautics and Space Administration (NASA) to use your classification method—in which case Bonus points will be awarded.
+
+# Do an in-depth analysis of a good classification model of your choice by showing some diagnostic plots or information related to convergence or parameter estimation.
+
+Check gaussian assumption
+Check different covariance matrix for each class
+Check non-linear decision boundaris with PCA
+
+
+ASK RAAZ: if this is a good idea...
+
+We decided to choose QDA as a good classification model of our choice because it had relatively high accuracy and is very interpretable (compared to random forest, even though random forest has better accuracy).
+
+
+PCA decision boundary from QDA -- Temporal Split
+```{r}
+model <- qda(label ~ CORR + SD + NDAI + rad_angle_AN, data = train_temp_new_num)
+pred_class <- predict(model, newdata = test_temp_new)$class
+pr_temp = prcomp(test_temp_new[,-3], scale. = TRUE)
+temp_PC1 = pr_temp$x[,c("PC1")]
+temp_PC2 = pr_temp$x[,c("PC2")]
+temp_df = data.frame(temp_PC1, temp_PC2, pred_class)
+ 
+library("factoextra")
+library(factoextra)
+fviz_pca_ind(pr_temp, geom.ind = "point", pointshape = 21, 
+             pointsize = 0.8, 
+             fill.ind = temp_df$pred_class, 
+             col.ind = temp_df$pred_class, 
+             palette = "jco", 
+             addEllipses = TRUE,
+             label = "var",
+             col.var = "black",
+             repel = TRUE,
+             alpha.ind = 0.3,
+             ellipse.level=0.9,
+             legend.title = "Predicted Label") +
+  labs(caption = 'Temporal Split', title = '') +
+  theme(plot.caption = element_text(hjust = 0.5, size = 11))
+```
+
+PCA decision boundary from QDA -- Spatial Split
+```{r}
+model <- qda(label ~ CORR + SD + NDAI+rad_angle_AN, data=train_spac_new_num)
+pred_class <- predict(model, newdata = test_spac_new)$class
+pr_spac = prcomp(test_spac_new[,-3], scale. = TRUE)
+spac_PC1 = pr_spac$x[,c("PC1")]
+spac_PC2 = pr_spac$x[,c("PC2")]
+spac_df = data.frame(spac_PC1, spac_PC2, pred_class)
+ 
+fviz_pca_ind(pr_spac, geom.ind = "point", pointshape = 21, 
+             pointsize = 0.8, 
+             fill.ind = spac_df$pred_class, 
+             col.ind = spac_df$pred_class, 
+             palette = "jco", 
+             addEllipses = TRUE,
+             label = "var",
+             col.var = "black",
+             repel = TRUE,
+             alpha.ind = 0.3,
+             ellipse.level=0.9,
+             legend.title = "Predicted Label") +
+  labs(caption = 'Spatial Split', title = '') +
+  theme(plot.caption = element_text(hjust = 0.5, size = 11))
+```
+
+```{r}
+model <- qda(label ~ CORR + SD + NDAI+rad_angle_AN, data=train_temp_img1_new_num)
+pred_class <- predict(model, newdata = test_temp_img1_new)$class
+pr_split1 = prcomp(test_temp_img1_new[,-3], scale. = TRUE)
+split1_PC1 = pr_split1$x[,c("PC1")]
+split1_PC2 = pr_split1$x[,c("PC2")]
+split1_df = data.frame(split1_PC1, split1_PC2, pred_class)
+ 
+fviz_pca_ind(pr_split1, geom.ind = "point", pointshape = 21, 
+             pointsize = 0.8, 
+             fill.ind = split1_df$pred_class, 
+             col.ind = split1_df$pred_class, 
+             palette = "jco", 
+             addEllipses = TRUE,
+             label = "var",
+             col.var = "black",
+             repel = TRUE,
+             alpha.ind = 0.3,
+             ellipse.level=0.9,
+             legend.title = "Predicted Label") +
+  labs(caption = 'Revised Split: Image 1', title = '') +
+  theme(plot.caption = element_text(hjust = 0.5, size = 11))
+```
+
+```{r}
+model <- qda(label ~ CORR + SD + NDAI+rad_angle_AN, data=train_temp_img2_new_num)
+pred_class <- predict(model, newdata = test_temp_img2_new)$class
+pr_split2 = prcomp(test_temp_img2_new[,-3], scale. = TRUE)
+split2_PC1 = pr_split2$x[,c("PC1")]
+split2_PC2 = pr_split2$x[,c("PC2")]
+split2_df = data.frame(split2_PC1, split2_PC2, pred_class)
+ 
+fviz_pca_ind(pr_split2, geom.ind = "point", pointshape = 21, 
+             pointsize = 0.8, 
+             fill.ind = split2_df$pred_class, 
+             col.ind = split2_df$pred_class, 
+             palette = "jco", 
+             addEllipses = TRUE,
+             label = "var",
+             col.var = "black",
+             repel = TRUE,
+             alpha.ind = 0.3,
+             ellipse.level=0.9,
+             legend.title = "Predicted Label") +
+  labs(caption = 'Revised Split: Image 2', title = '') +
+  theme(plot.caption = element_text(hjust = 0.5, size = 11))
+```
+
+```{r}
+model <- qda(label ~ CORR + SD + NDAI+rad_angle_AN, data=train_temp_img3_new_num)
+pred_class <- predict(model, newdata = test_temp_img3_new)$class
+pr_split3 = prcomp(test_temp_img3_new[,-3], scale. = TRUE)
+split3_PC1 = pr_split3$x[,c("PC1")]
+split3_PC2 = pr_split3$x[,c("PC2")]
+split3_df = data.frame(split3_PC1, split3_PC2, pred_class)
+ 
+fviz_pca_ind(pr_split3, geom.ind = "point", pointshape = 21, 
+             pointsize = 0.8, 
+             fill.ind = split3_df$pred_class, 
+             col.ind = split3_df$pred_class, 
+             palette = "jco", 
+             addEllipses = TRUE,
+             label = "var",
+             col.var = "black",
+             repel = TRUE,
+             alpha.ind = 0.3,
+             ellipse.level=0.9,
+             legend.title = "Predicted Label") +
+  labs(caption = 'Revised Split: Image 3', title = '') +
+  theme(plot.caption = element_text(hjust = 0.5, size = 11))
+```
+
+
+We will compare Variance Co-variance Matrices of the 2 classes in order to prove QDA is a good classifier.
+```{r}
+#class 1 Var-CoVar matrix
+image_class1 = filter(image, label == 1)
+var_cov_matrix_class1 = as.matrix(mlest(image_class1[,c(4:6,11)])$sigmahat)
+colnames(var_cov_matrix_class1) = c("NDAI", "SD", "CORR", "rad_angle_AN")
+var_cov_matrix_class1
+```
+
+```{r}
+#class -1 Var-CoVar matrix
+image_classNeg1 = filter(image, label == -1)
+var_cov_matrix_classNeg1 = as.matrix(mlest(image_classNeg1[,c(4:6,11)])$sigmahat)
+colnames(var_cov_matrix_classNeg1) = c("NDAI", "SD", "CORR", "rad_angle_AN")
+var_cov_matrix_classNeg1
+```
+We can see here that the variance-covariance matrices are different for the two classes (cloudy vs. non-cloudy) which supports our claim that QDA is a good classifier. If the variance-covariance matrices were the same, then LDA would be a good classifier.
+
+
+QQ-plot to check Gaussian assumption of each predictor we used: NDAI, CORR, SD, Rad-Angle AN
+```{r}
+# Class 1
+image_qq <- image[,c(3:6,11)]
+image_qq <- melt(image_qq, id.vars = 'label', 
+                                   variable.name = 'covariate', value.name = 'value')
+ggplot(image_qq[image_qq$label == 1,], aes(sample = value))+
+  stat_qq(size = 0.5) + stat_qq_line() +
+  facet_wrap(covariate ~ ., scales = 'free') + theme_gdocs() + theme(strip.text.x = element_text(size = 8), plot.caption = element_text(hjust = 0.7))
+
+# Class -1
+ggplot(image_qq[image_qq$label == -1,], aes(sample = value))+
+  stat_qq(size = 0.5) + stat_qq_line() +
+  facet_wrap(covariate ~ ., scales = 'free') + theme_gdocs() + theme(strip.text.x = element_text(size = 8), plot.caption = element_text(hjust = 0.7))
+```
+We can see here that Gaussian assumptions are not completely satisfied here for our predictors, which may explain why QDA isn't the best classifier when compared with Random Forest, but it is still good as a classifier.
+
+# For your best classification model(s), do you notice any patterns in the misclassification errors? Again, use quantitative and visual methods of analysis. Do you notice problems in particular regions, or in specific ranges of feature values?
+
+```{r}
+# Temporal split
+temp_exam <- test_temp_new
+temp_exam$pred <- rf_temp
+temp_exam$classification <- temp_exam$label == temp_exam$pred
+temp_exam$classification <- as.factor(temp_exam$classification)
+levels(temp_exam$classification) <- c('Incorrect', 'Correct')
+temp_exam$status <- NA
+temp_exam[(temp_exam$label == 1) & (temp_exam$pred == 1),'status'] <- 'TP'
+temp_exam[(temp_exam$label == 1) & (temp_exam$pred == 0),'status'] <- 'FN'
+temp_exam[(temp_exam$label == 0) & (temp_exam$pred == 0),'status'] <- 'TN'
+temp_exam[(temp_exam$label == 0) & (temp_exam$pred == 1),'status'] <- 'FP'
+temp_exam$status <- as.factor(temp_exam$status)
+```
+
+```{r}
+ggplot(temp_exam, aes(x = x, y = y)) + 
+  geom_point(aes(color = status),alpha = 0.2, size = 0.5) +
+  theme_gdocs() + 
+  xlab('X Coordinate') + 
+  ylab('Y Coordinate') + 
+  labs(caption='Temporal Split')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+It can be seen that while in reality clouds form in group/chunk, random forest trianed on temporal split was not able to pick up the dependence in the spatial orientation. 
+
+```{r}
+#ndai
+ggplot(temp_exam,aes(x=NDAI, color = status, fill = status)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'TN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=temp_exam[temp_exam$status == 'FN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=temp_exam[temp_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  labs(x = "NDAI") +
+  labs(y = "Density") +
+  labs(title = "Temporal Split") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+It can be seen that while all TNs are far away from others in terms of NDAI, TPs are almost identical in distribution to FPs, and FNs are slightly skewed to the right just like the TNs. This shows that there is a possibility that random forest did not classify the points correctly because parts of the two classes exhibit idential distributions of feature NDAI, especially the class 'cloud'.
+
+```{r}
+# log(sd)
+ggplot(temp_exam,aes(x=log(SD), color = status, fill = status)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'TP',], alpha = 0.2, binwidth = .25, aes(y = ..density..)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'TN',], alpha = 0.2, binwidth = .25, aes(y = ..density..)) +
+  geom_histogram(data=temp_exam[temp_exam$status == 'FN',], alpha = 0.2, binwidth = .25, aes(y = ..density..)) +
+  geom_histogram(data=temp_exam[temp_exam$status == 'FP',], alpha = 0.2, binwidth = .25, aes(y = ..density..)) +
+  labs(x = "log(SD + 1)") +
+  labs(y = "Density") +
+  labs(title = "Temporal Split") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# CORR
+ggplot(temp_exam,aes(x=CORR, color = status, fill = status)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'TP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'TN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+   geom_histogram(data=temp_exam[temp_exam$status == 'FP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'FN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  labs(x = "CORR") +
+  labs(y = "Density") +
+  labs(title = "Temporal Split") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+
+```{r}
+#angle
+ggplot(temp_exam,aes(x=rad_angle_AN, color = status, fill = status)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'TP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'TN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+   geom_histogram(data=temp_exam[temp_exam$status == 'FP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=temp_exam[temp_exam$status == 'FN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  labs(x = "rad_angle_AN") +
+  labs(y = "Density") +
+  labs(title = "Temporal Split") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# Spatial split
+spac_exam <- test_spac_new
+spac_exam$pred <- rf_spac
+spac_exam$classification <- spac_exam$label == spac_exam$pred
+spac_exam$classification <- as.factor(spac_exam$classification)
+levels(spac_exam$classification) <- c('Incorrect', 'Correct')
+spac_exam$status <- NA
+spac_exam[(spac_exam$label == 1) & (spac_exam$pred == 1),'status'] <- 'TP'
+spac_exam[(spac_exam$label == 1) & (spac_exam$pred == 0),'status'] <- 'FN'
+spac_exam[(spac_exam$label == 0) & (spac_exam$pred == 0),'status'] <- 'TN'
+spac_exam[(spac_exam$label == 0) & (spac_exam$pred == 1),'status'] <- 'FP'
+spac_exam$status <- as.factor(spac_exam$status)
+```
+
+
+```{r}
+ggplot(spac_exam, aes(x = x, y = y)) + 
+  geom_point(aes(color = status),alpha = 0.2, size = 0.5) +
+  theme_gdocs() + 
+  xlab('X Coordinate') + 
+  ylab('Y Coordinate') + 
+  labs(caption='Spatial Split')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+It can be seen that while some blocks are misclassified, the classifier picked up the fact that almost all points in the same block belong to the same class. This has improved the test accuracy, as can be seen from the report. It seems like most misclassified points lie on the diagonal.
+
+
+```{r}
+#ndai
+ggplot(spac_exam,aes(x=NDAI, color = status, fill = status)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'TN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=spac_exam[spac_exam$status == 'FN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=spac_exam[spac_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  labs(x = "NDAI") +
+  labs(y = "Density") +
+  theme_gdocs()
+```
+
+
+
+```{r}
+#log(sd)
+ggplot(spac_exam,aes(x=log(SD), color = status, fill = status)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=spac_exam[spac_exam$status == 'FN',], alpha = 0.2, binwidth = .25, aes(y = ..density..)) +
+  geom_histogram(data=spac_exam[spac_exam$status == 'TN',], alpha = 0.2, binwidth = .25, aes(y = ..density..)) +
+  labs(x = "log(SD)") +
+  labs(y = "Density") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10))
+```
+
+```{r}
+# CORR
+ggplot(spac_exam,aes(x=CORR, color = status, fill = status)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'TP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'FP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  geom_histogram(data=spac_exam[spac_exam$status == 'TN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'FN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  labs(x = "CORR") +
+  labs(y = "Density")  +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+
+```{r}
+# angle
+ggplot(spac_exam,aes(x=rad_angle_AN, color = status, fill = status)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'FP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'TP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  geom_histogram(data=spac_exam[spac_exam$status == 'FN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=spac_exam[spac_exam$status == 'TN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  labs(x = "rad_angle_AN") +
+  labs(y = "Density")  +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10))
+```
+
+```{r, message=FALSE}
+spac_exam_melt <- melt(spac_exam[,c(4:6,11,14)], id.vars = 'status', 
+                                   variable.name = 'covariate', value.name = 'value')
+ggplot(spac_exam_melt,aes(x=value, color = status, fill = status)) +
+  facet_wrap(.~covariate, scales = 'free')+
+    geom_histogram(data=spac_exam_melt[spac_exam_melt$status == 'FP',], alpha = 0.2,  aes(y = ..density..)) +
+    geom_histogram(data=spac_exam_melt[spac_exam_melt$status == 'TP',], alpha = 0.2,  aes(y = ..density..)) +
+  geom_histogram(data=spac_exam_melt[spac_exam_melt$status == 'FN',], alpha = 0.2, aes(y = ..density..)) +
+    geom_histogram(data=spac_exam_melt[spac_exam_melt$status == 'TN',], alpha = 0.2, aes(y = ..density..)) +
+  labs(y = "Density")  +
+  theme_gdocs() +
+  theme(strip.text.x = element_text(size = 10), legend.text = element_text(size = 10), legend.title = element_text(size = 10))
+```
+
+```{r}
+# New split, Imgae 1
+split1_exam <- test_temp_img1_new
+split1_exam$pred <- rf_split1
+split1_exam$classification <- split1_exam$label == split1_exam$pred
+split1_exam$classification <- as.factor(split1_exam$classification)
+levels(split1_exam$classification) <- c('Incorrect', 'Correct')
+split1_exam$status <- NA
+split1_exam[(split1_exam$label == 1) & (split1_exam$pred == 1),'status'] <- 'TP'
+split1_exam[(split1_exam$label == 1) & (split1_exam$pred == 0),'status'] <- 'FN'
+split1_exam[(split1_exam$label == 0) & (split1_exam$pred == 0),'status'] <- 'TN'
+split1_exam[(split1_exam$label == 0) & (split1_exam$pred == 1),'status'] <- 'FP'
+split1_exam$status <- as.factor(split1_exam$status)
+```
+
+
+```{r}
+ggplot(split1_exam, aes(x = x, y = y)) + 
+  geom_point(aes(color = status), size = 0.5) +
+  theme_gdocs() + 
+  xlab('X Coordinate') + 
+  ylab('Y Coordinate') + 
+  labs(caption='Revised Split: Image 1')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+
+```{r}
+# ndai
+ggplot(split1_exam,aes(x=NDAI, color = status, fill = status)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'TN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=split1_exam[split1_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'FN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  labs(x = "NDAI") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 1") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# log(sd)
+ggplot(split1_exam,aes(x=log(SD), color = status, fill = status)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'TN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=split1_exam[split1_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'FN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  labs(x = "log(SD + 1)") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 1") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# corr
+ggplot(split1_exam,aes(x=CORR, color = status, fill = status)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'TP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'TN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  geom_histogram(data=split1_exam[split1_exam$status == 'FP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'FN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  labs(x = "CORR") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 1") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# angle
+ggplot(split1_exam,aes(x=rad_angle_AN, color = status, fill = status)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'TP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'TN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  geom_histogram(data=split1_exam[split1_exam$status == 'FP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=split1_exam[split1_exam$status == 'FN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  labs(x = "rad_angle_AN") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 1") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10))
+```
+
+```{r}
+# New split, Imgae 2
+split2_exam <- test_temp_img2_new
+split2_exam$pred <- rf_split2
+split2_exam$classification <- split2_exam$label == split2_exam$pred
+split2_exam$classification <- as.factor(split2_exam$classification)
+levels(split2_exam$classification) <- c('Incorrect', 'Correct')
+split2_exam$status <- NA
+split2_exam[(split2_exam$label == 1) & (split2_exam$pred == 1),'status'] <- 'TP'
+split2_exam[(split2_exam$label == 1) & (split2_exam$pred == 0),'status'] <- 'FN'
+split2_exam[(split2_exam$label == 0) & (split2_exam$pred == 0),'status'] <- 'TN'
+split2_exam[(split2_exam$label == 0) & (split2_exam$pred == 1),'status'] <- 'FP'
+split2_exam$status <- as.factor(split2_exam$status)
+```
+
+```{r}
+ggplot(split2_exam, aes(x = x, y = y)) + 
+  geom_point(aes(color = status), size = 0.5) +
+  theme_gdocs() + 
+  xlab('X Coordinate') + 
+  ylab('Y Coordinate') + 
+  labs(caption='Revised Split: Image 2')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+```{r}
+# ndai
+ggplot(split2_exam,aes(x=NDAI, color = status, fill = status)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'TN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=split2_exam[split2_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'FN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  labs(x = "NDAI") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 2") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# log(SD)
+ggplot(split2_exam,aes(x=log(SD), color = status, fill = status)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'TN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=split2_exam[split2_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'FN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  labs(x = "log(SD + 1)") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 2") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# corr
+ggplot(split2_exam,aes(x=CORR, color = status, fill = status)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'TP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'TN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  geom_histogram(data=split2_exam[split2_exam$status == 'FP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'FN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  labs(x = "CORR") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 2") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# angle
+ggplot(split2_exam,aes(x=rad_angle_AN, color = status, fill = status)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'TP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'TN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  geom_histogram(data=split2_exam[split2_exam$status == 'FP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=split2_exam[split2_exam$status == 'FN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  labs(x = "rad_angle_AN") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 2") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10))
+```
+
+
+```{r}
+# New split, Imgae 3
+split3_exam <- test_temp_img3_new
+split3_exam$pred <- rf_split3
+split3_exam$classification <- split3_exam$label == split3_exam$pred
+split3_exam$classification <- as.factor(split3_exam$classification)
+levels(split3_exam$classification) <- c('Incorrect', 'Correct')
+split3_exam$status <- NA
+split3_exam[(split3_exam$label == 1) & (split3_exam$pred == 1),'status'] <- 'TP'
+split3_exam[(split3_exam$label == 1) & (split3_exam$pred == 0),'status'] <- 'FN'
+split3_exam[(split3_exam$label == 0) & (split3_exam$pred == 0),'status'] <- 'TN'
+split3_exam[(split3_exam$label == 0) & (split3_exam$pred == 1),'status'] <- 'FP'
+split3_exam$status <- as.factor(split3_exam$status)
+```
+
+```{r}
+ggplot(split3_exam, aes(x = x, y = y)) + 
+  geom_point(aes(color = status), size = 0.5) +
+  theme_gdocs() + 
+  xlab('X Coordinate') + 
+  ylab('Y Coordinate') + 
+  labs(caption='Revised Split: Image 3')  +
+  theme(plot.caption = element_text(hjust = 0.5))
+```
+
+```{r}
+# NDAI
+ggplot(split3_exam,aes(x=NDAI, color = status, fill = status)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'TN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=split3_exam[split3_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'FN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  labs(x = "NDAI") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 3") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# log(SD)
+ggplot(split3_exam,aes(x=log(SD), color = status, fill = status)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'TP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'TN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  geom_histogram(data=split3_exam[split3_exam$status == 'FP',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'FN',], alpha = 0.2, binwidth = 0.25, aes(y = ..density..)) +
+  labs(x = "log(SD + 1)") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 3") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# CORR
+ggplot(split3_exam,aes(x=CORR, color = status, fill = status)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'TP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'TN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  geom_histogram(data=split3_exam[split3_exam$status == 'FP',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'FN',], alpha = 0.2, binwidth = 0.05, aes(y = ..density..)) +
+  labs(x = "CORR") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 3") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10)) 
+```
+
+```{r}
+# angle
+ggplot(split3_exam,aes(x=rad_angle_AN, color = status, fill = status)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'TP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'TN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  geom_histogram(data=split3_exam[split3_exam$status == 'FP',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+    geom_histogram(data=split3_exam[split3_exam$status == 'FN',], alpha = 0.2, binwidth = 10, aes(y = ..density..)) +
+  labs(x = "rad_angle_AN") +
+  labs(y = "Density") +
+  labs(title = "New Split, Image 3") +
+  theme_gdocs() +
+  theme(plot.title = element_text(size=10))
+```
+# Based on parts 4(a) and 4(b), can you think of a better classifier? How well do you think your model will work on future data without expert labels?
+
+
+# Do your results in parts 4(a) and 4(b) change as you modify the way of splitting the data?
+
+
+# Write a paragraph for your conclusion.
+
+
+
+
+
