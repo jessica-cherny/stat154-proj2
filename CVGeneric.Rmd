@@ -4,11 +4,13 @@ output: html_notebook
 ---
 
 ```{r}
-# trainFeats will be a formula, not a data frame
-# Need to pre-process classes for logistic regression:
-# right now we have -1 and 1 but logistic needs 0 and 1,
-# so re-assign all -1 to be 0 and ignores original 0's.
 # classifier needs to be a character string
+# trainFeats will be a vector of train features, such as c("x", "y")
+# trainLabels is the binary response variable, as a string
+# foldsK is the number of folds in CV, an integer
+# lossFunc is a function call
+# training is the training data frame where all features and labels come from
+
 
 # lossfunc can be cv error, hinge loss, logistic loss
 CVgeneric <- function(classifier, trainFeats, trainLabels, foldsK, lossFunc, training) {
@@ -34,4 +36,8 @@ CVgeneric <- function(classifier, trainFeats, trainLabels, foldsK, lossFunc, tra
 }
 ```
 
+```{r}
+# Example
+CVgeneric(classifier = "glm" , trainFeats = c("CORR","SD","NDAI","rad_angle_AN"), trainLabels = "label", foldsK = 5, lossFunc = mse, training = train_temp_new)
+```
 
